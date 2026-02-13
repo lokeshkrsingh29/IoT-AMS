@@ -6,6 +6,8 @@ import json
 import tkinter as tk
 from tkinter import messagebox, ttk, simpledialog
 from PIL import Image, ImageTk
+from dotenv import load_dotenv
+from supabase import create_client
 
 class AttendanceSystemGUI:
     def __init__(self, window):
@@ -27,6 +29,16 @@ class AttendanceSystemGUI:
         self.face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
         self.recognizer = cv2.face.LBPHFaceRecognizer_create()
         self.students_db_path = os.path.join(self.base_dir, "students_db.json")
+        self.students = {}
+
+        # Supabase setup
+        load_dotenv()
+        self.supabase = self._init_supabase_client()
+        self.students_table = os.getenv("SUPABASE_STUDENTS_TABLE", "students")
+        self.attendance_table = os.getenv("SUPABASE_ATTENDANCE_TABLE", "attendance")
+        self.photos_table = os.getenv("SUPABASE_STUDENT_PHOTOS_TABLE", "student_photos")
+        self.photos_bucket = os.getenv("SUPABASE_PHOTOS_BUCKET", "student-photos")
+
         self.students = self.load_students_db()
         
         self.model_path = os.path.join(self.models_dir, "face_model.yml")
@@ -61,15 +73,145 @@ class AttendanceSystemGUI:
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
     # --- Database Logic ---
+    def _init_supabase_client(self):
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+
+        if not supabase_url or not supabase_key:
+            messagebox.showerror(
+                "Supabase Config Missing",
+                "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_KEY) in .env"
+            )
+            self.window.quit()
+            return None
+
+        try:
+            return create_client(supabase_url, supabase_key)
+        except Exception as e:
+            messagebox.showerror("Supabase Error", f"Could not create Supabase client:\n{e}")
+            self.window.quit()
+            return None
+
     def load_students_db(self):
-        if os.path.exists(self.students_db_path):
-            with open(self.students_db_path, 'r') as f:
-                return json.load(f)
-        return {}
+        try:
+            response = self.supabase.table(self.students_table).select("*").execute()
+            students = {}
+
+            for row in response.data or []:
+                reg = str(row["reg_number"])
+                students[reg] = {
+                    "id": int(row["student_id"]),
+                    "name": row["name"],
+                    "reg_number": reg,
+                    "photo_dir": row.get("photo_dir", ""),
+                    "registered_date": row.get("registered_date", ""),
+                    "model_trained": bool(row.get("model_trained", False)),
+                    "model_trained_at": row.get("model_trained_at")
+                }
+            return students
+        except Exception as e:
+            messagebox.showerror("Supabase Error", f"Failed to load students from database:\n{e}")
+            return {}
 
     def save_students_db(self):
-        with open(self.students_db_path, 'w') as f:
-            json.dump(self.students, f, indent=4)
+        # Kept for backward compatibility with existing flow.
+        # Data persistence is handled in Supabase now.
+        pass
+
+    def get_next_student_id(self):
+        if not self.students:
+            return 1
+        return max(student["id"] for student in self.students.values()) + 1
+
+    def save_student_to_supabase(self, student_data):
+        try:
+            self.supabase.table(self.students_table).upsert(
+                student_data,
+                on_conflict="reg_number"
+            ).execute()
+            return True
+        except Exception as e:
+            messagebox.showerror("Supabase Error", f"Failed to save student:\n{e}")
+            return False
+
+    def save_attendance_to_supabase(self, attendance_data):
+        try:
+            self.supabase.table(self.attendance_table).upsert(
+                attendance_data,
+                on_conflict="attendance_date,reg_number"
+            ).execute()
+            return True
+        except Exception as e:
+            messagebox.showerror("Supabase Error", f"Failed to mark attendance in database:\n{e}")
+            return False
+
+    def get_training_status_from_db(self):
+        try:
+            response = self.supabase.table(self.students_table).select("reg_number,model_trained").execute()
+            rows = response.data or []
+
+            if not rows:
+                return {"all_trained": False, "untrained_regs": []}
+
+            untrained_regs = [str(row["reg_number"]) for row in rows if not bool(row.get("model_trained", False))]
+            return {"all_trained": len(untrained_regs) == 0, "untrained_regs": untrained_regs}
+        except Exception as e:
+            messagebox.showerror("Supabase Error", f"Failed to check training status from DB:\n{e}")
+            return None
+
+    def mark_students_trained_in_db(self, reg_numbers):
+        if not reg_numbers:
+            return True
+
+        now_iso = datetime.now().isoformat()
+        try:
+            for reg_number in reg_numbers:
+                self.supabase.table(self.students_table).update(
+                    {"model_trained": True, "model_trained_at": now_iso}
+                ).eq("reg_number", reg_number).execute()
+            return True
+        except Exception as e:
+            messagebox.showerror("Supabase Error", f"Failed to update training status:\n{e}")
+            return False
+
+    def save_student_photo_to_supabase(self, photo_data):
+        try:
+            self.supabase.table(self.photos_table).insert(photo_data).execute()
+            return True
+        except Exception as e:
+            messagebox.showerror("Supabase Error", f"Failed to save student photo metadata:\n{e}")
+            return False
+
+    def _sanitize_for_path(self, value):
+        cleaned = []
+        for ch in value.strip():
+            if ch.isalnum() or ch in ("-", "_"):
+                cleaned.append(ch)
+            else:
+                cleaned.append("_")
+        return "".join(cleaned) or "student"
+
+    def upload_student_photo(self, reg_number, student_name, photo_no, local_photo_path):
+        safe_student = self._sanitize_for_path(f"{reg_number}_{student_name}")
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+        storage_path = f"{safe_student}/photo_{photo_no}_{timestamp}.jpg"
+
+        try:
+            with open(local_photo_path, "rb") as img_file:
+                self.supabase.storage.from_(self.photos_bucket).upload(
+                    path=storage_path,
+                    file=img_file.read(),
+                    file_options={"content-type": "image/jpeg", "upsert": "true"}
+                )
+
+            public_url = self.supabase.storage.from_(self.photos_bucket).get_public_url(storage_path)
+            return {
+                "storage_path": storage_path,
+                "public_url": public_url
+            }
+        except Exception as e:
+            messagebox.showerror("Supabase Error", f"Failed to upload student photo:\n{e}")
+            return None
 
     # --- Core Functionality ---
     def register_student(self):
@@ -82,7 +224,7 @@ class AttendanceSystemGUI:
             messagebox.showerror("Error", f"Reg Number {reg_number} already exists!")
             return
 
-        student_id = len(self.students) + 1
+        student_id = self.get_next_student_id()
         student_photo_dir = os.path.join(self.students_dir, f"{reg_number}_{name}")
         os.makedirs(student_photo_dir, exist_ok=True)
 
@@ -90,6 +232,7 @@ class AttendanceSystemGUI:
 
         cap = cv2.VideoCapture(0)
         photo_count = 0
+        captured_photo_paths = []
         while photo_count < 10:
             ret, frame = cap.read()
             if not ret: break
@@ -107,6 +250,7 @@ class AttendanceSystemGUI:
             if key == 32 and len(faces) > 0: # Space
                 photo_path = os.path.join(student_photo_dir, f"photo_{photo_count + 1}.jpg")
                 cv2.imwrite(photo_path, frame)
+                captured_photo_paths.append(photo_path)
                 photo_count += 1
             elif key == 27: # Esc
                 break
@@ -115,17 +259,65 @@ class AttendanceSystemGUI:
         cv2.destroyAllWindows()
 
         if photo_count == 10:
-            self.students[reg_number] = {
+            uploaded_photos = []
+            for idx, local_photo_path in enumerate(captured_photo_paths, start=1):
+                upload_result = self.upload_student_photo(reg_number, name, idx, local_photo_path)
+                if upload_result:
+                    uploaded_photos.append({
+                        "photo_no": idx,
+                        "storage_path": upload_result["storage_path"],
+                        "public_url": upload_result["public_url"]
+                    })
+
+            profile_photo_path = uploaded_photos[0]["storage_path"] if uploaded_photos else None
+            profile_photo_url = uploaded_photos[0]["public_url"] if uploaded_photos else None
+
+            student_data = {
                 "id": student_id, "name": name, "reg_number": reg_number,
                 "photo_dir": student_photo_dir, "registered_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
-            self.save_students_db()
-            messagebox.showinfo("Success", f"Student {name} registered!")
-            self.status_var.set(f"Registered {name}")
+            supabase_student_data = {
+                "student_id": student_id,
+                "name": name,
+                "reg_number": reg_number,
+                "photo_dir": student_photo_dir,
+                "registered_date": datetime.now().isoformat(),
+                "profile_photo_path": profile_photo_path,
+                "profile_photo_url": profile_photo_url,
+                "model_trained": False,
+                "model_trained_at": None
+            }
+
+            if self.save_student_to_supabase(supabase_student_data):
+                for photo in uploaded_photos:
+                    self.save_student_photo_to_supabase({
+                        "reg_number": reg_number,
+                        "student_name": name,
+                        "photo_no": photo["photo_no"],
+                        "storage_path": photo["storage_path"],
+                        "photo_url": photo["public_url"],
+                        "captured_at": datetime.now().isoformat()
+                    })
+                self.students[reg_number] = student_data
+                messagebox.showinfo(
+                    "Success",
+                    f"Student {name} registered!\nUploaded {len(uploaded_photos)}/10 photos to Supabase Storage."
+                )
+                self.status_var.set(f"Registered {name}")
+            else:
+                messagebox.showerror("Error", "Student registered locally, but DB save failed.")
 
     def train_model(self):
         if not self.students:
             messagebox.showwarning("Warning", "No students registered to train!")
+            return
+
+        training_status = self.get_training_status_from_db()
+        if training_status is None:
+            return
+
+        if training_status["all_trained"]:
+            messagebox.showerror("Error", "Model has already been trained for all registered students.")
             return
 
         faces, labels = [], []
@@ -143,6 +335,15 @@ class AttendanceSystemGUI:
         if faces:
             self.recognizer.train(faces, np.array(labels))
             self.recognizer.save(self.model_path)
+
+            if not self.mark_students_trained_in_db(training_status["untrained_regs"]):
+                return
+
+            for reg in training_status["untrained_regs"]:
+                if reg in self.students:
+                    self.students[reg]["model_trained"] = True
+                    self.students[reg]["model_trained_at"] = datetime.now().isoformat()
+
             messagebox.showinfo("Success", "Model trained successfully!")
             self.status_var.set("Model Trained")
         else:
@@ -155,6 +356,7 @@ class AttendanceSystemGUI:
 
         today = datetime.now().strftime("%Y-%m-%d")
         attendance_file = os.path.join(self.attendance_dir, f"attendance_{today}.json")
+        window_name = 'Mark Attendance - Press ESC to exit'
         
         attendance_record = {}
         if os.path.exists(attendance_file):
@@ -177,11 +379,23 @@ class AttendanceSystemGUI:
                         reg = student_info['reg_number']
                         
                         if reg not in attendance_record:
+                            current_time = datetime.now().strftime("%H:%M:%S")
                             attendance_record[reg] = {
                                 "name": name, "reg_number": reg,
-                                "time": datetime.now().strftime("%H:%M:%S"), "status": "Present"
+                                "time": current_time, "status": "Present"
                             }
-                            with open(attendance_file, 'w') as f: json.dump(attendance_record, f, indent=4)
+                            with open(attendance_file, 'w') as f:
+                                json.dump(attendance_record, f, indent=4)
+
+                            attendance_data = {
+                                "attendance_date": today,
+                                "reg_number": reg,
+                                "name": name,
+                                "time": current_time,
+                                "status": "Present",
+                                "marked_at": datetime.now().isoformat()
+                            }
+                            self.save_attendance_to_supabase(attendance_data)
                         
                         cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
                         cv2.putText(frame, f"{name} (Marked)", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
@@ -189,8 +403,14 @@ class AttendanceSystemGUI:
                     cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 255), 2)
                     cv2.putText(frame, "Unknown", (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
-            cv2.imshow('Mark Attendance - Press ESC to exit', frame)
-            if cv2.waitKey(1) == 27: break
+            cv2.imshow(window_name, frame)
+            key = cv2.waitKey(1) & 0xFF
+            if key == 27:
+                break
+
+            # If user closes the OpenCV window via the X button, stop the loop.
+            if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+                break
 
         cap.release()
         cv2.destroyAllWindows()

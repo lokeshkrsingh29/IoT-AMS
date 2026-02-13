@@ -1,0 +1,20 @@
+{
+    "22155154003": {
+        "name": "Aman kumar",
+        "reg_number": "22155154003",
+        "time": "19:09:36",
+        "status": "Present"
+    },
+    "22155154001": {
+        "name": "Deepika",
+        "reg_number": "22155154001",
+        "time": "19:38:14",
+        "status": "Present"
+    },
+    "Lokesh": {
+        "name": "Lokesh",
+        "reg_number": "Lokesh",
+        "time": "19:38:26",
+        "status": "Present"
+    }
+}
