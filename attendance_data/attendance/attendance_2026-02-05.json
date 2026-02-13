@@ -1,0 +1,26 @@
+{
+    "001": {
+        "name": "Aman",
+        "reg_number": "001",
+        "time": "22:26:45",
+        "status": "Present"
+    },
+    "47": {
+        "name": "lokesh",
+        "reg_number": "47",
+        "time": "22:27:43",
+        "status": "Present"
+    },
+    "38": {
+        "name": "Vikash Kumar",
+        "reg_number": "38",
+        "time": "22:29:32",
+        "status": "Present"
+    },
+    "29": {
+        "name": "Chandan Kumar",
+        "reg_number": "29",
+        "time": "22:54:55",
+        "status": "Present"
+    }
+}

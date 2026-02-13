@@ -1,0 +1,30 @@
+{
+    "001": {
+        "id": 1,
+        "name": "Aman",
+        "reg_number": "001",
+        "photo_dir": "attendance_data\\students\\001_Aman",
+        "registered_date": "2026-02-05 22:26:14"
+    },
+    "47": {
+        "id": 2,
+        "name": "lokesh",
+        "reg_number": "47",
+        "photo_dir": "attendance_data\\students\\47_lokesh",
+        "registered_date": "2026-02-05 22:27:28"
+    },
+    "38": {
+        "id": 3,
+        "name": "Vikash Kumar",
+        "reg_number": "38",
+        "photo_dir": "attendance_data\\students\\38_Vikash Kumar",
+        "registered_date": "2026-02-05 22:29:02"
+    },
+    "29": {
+        "id": 4,
+        "name": "Chandan Kumar",
+        "reg_number": "29",
+        "photo_dir": "attendance_data\\students\\29_Chandan Kumar",
+        "registered_date": "2026-02-05 22:53:57"
+    }
+}

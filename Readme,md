@@ -1,0 +1,124 @@
+# Face Recognition Attendance System
+
+A simple and clean Python-based face recognition attendance system that registers students, trains a face recognition model, and marks attendance automatically.
+
+## Features
+
+- ✅ Register students with unique registration numbers
+- ✅ Capture 10 photos per student for training
+- ✅ Train face recognition model
+- ✅ Automatic attendance marking via camera
+- ✅ Save attendance records in JSON format
+- ✅ View registered students and attendance history
+
+## Requirements
+
+- Python 3.7 or higher
+- Webcam
+
+## Installation
+
+1. **Install Python dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Run the system:**
+   ```bash
+   python attendance_system.py
+   ```
+
+## Usage
+
+### 1. Register a Student
+- Choose option 1 from the menu
+- Enter student name and registration number
+- The camera will open
+- Press SPACE to capture each of the 10 photos
+- Press ESC to cancel
+
+### 2. Train Model
+- Choose option 2 from the menu
+- The system will load all registered student photos
+- The model will be trained and saved automatically
+
+### 3. Mark Attendance
+- Choose option 3 from the menu
+- The camera will start
+- Stand in front of the camera
+- If recognized, attendance will be marked automatically
+- Press ESC to exit
+
+### 4. View Students
+- Choose option 4 to see all registered students
+
+### 5. View Attendance
+- Choose option 5 to see attendance records by date
+
+## File Structure
+
+```
+attendance_data/
+├── students/              # Student photos
+│   └── [reg_number]_[name]/
+│       ├── photo_1.jpg
+│       ├── photo_2.jpg
+│       └── ...
+├── models/               # Trained model
+│   └── face_model.yml
+├── attendance/           # Attendance records
+│   └── attendance_YYYY-MM-DD.json
+└── students_db.json      # Student database
+```
+
+## Attendance Records Format
+
+Attendance is saved in JSON format:
+```json
+{
+    "REG001": {
+        "name": "John Doe",
+        "reg_number": "REG001",
+        "time": "09:30:15",
+        "status": "Present"
+    }
+}
+```
+
+## Tips
+
+- Ensure good lighting when capturing photos
+- Look directly at the camera during registration
+- Capture photos from slightly different angles
+- The system marks attendance only once per day per student
+- Lower confidence values mean better matches (threshold is 70)
+
+## Future Enhancements (You can add later)
+
+- Export attendance to Excel
+- Email notifications
+- Multiple camera support
+- Web interface
+- Mobile app integration
+
+## Troubleshooting
+
+**Camera not working:**
+- Check if your webcam is connected
+- Ensure no other application is using the camera
+- Try changing `cv2.VideoCapture(0)` to `cv2.VideoCapture(1)`
+
+**Model not recognizing faces:**
+- Ensure you've trained the model (option 2)
+- Register more students for better accuracy
+- Improve lighting conditions
+- Capture training photos with varied expressions
+
+**Installation issues:**
+- Make sure you have Python 3.7+
+- Install Visual C++ redistributables (Windows users)
+- Use a virtual environment to avoid conflicts
+
+## License
+
+Free to use and modify for educational and personal projects.
