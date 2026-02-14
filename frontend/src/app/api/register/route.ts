@@ -13,12 +13,13 @@ export async function POST(req: Request) {
   const formData = await req.formData();
   const name = String(formData.get("name") || "").trim();
   const regNumber = String(formData.get("regNumber") || "").trim();
+  const telegramId = String(formData.get("telegramId") || "").trim();
   const photos = formData
     .getAll("photos")
     .filter((file): file is File => file instanceof File);
 
-  if (!name || !regNumber) {
-    return NextResponse.json({ error: "Name and registration number are required." }, { status: 400 });
+  if (!name || !regNumber || !telegramId) {
+    return NextResponse.json({ error: "Name, registration number, and Telegram ID are required." }, { status: 400 });
   }
 
   if (photos.length !== 10) {
@@ -79,6 +80,7 @@ export async function POST(req: Request) {
       student_id: studentId,
       name,
       reg_number: regNumber,
+      telegram_id: telegramId,
       photo_dir: `attendance_data/students/${regNumber}_${name}`,
       profile_photo_path: uploaded[0]?.storage_path ?? null,
       profile_photo_url: uploaded[0]?.photo_url ?? null,

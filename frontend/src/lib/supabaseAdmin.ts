@@ -4,6 +4,7 @@ export const TABLES = {
   students: process.env.SUPABASE_STUDENTS_TABLE || "students",
   attendance: process.env.SUPABASE_ATTENDANCE_TABLE || "attendance",
   photos: process.env.SUPABASE_STUDENT_PHOTOS_TABLE || "student_photos",
+  classes: process.env.SUPABASE_CLASSES_TABLE || "classes",
 };
 
 export const PHOTOS_BUCKET = process.env.SUPABASE_PHOTOS_BUCKET || "student-photos";
