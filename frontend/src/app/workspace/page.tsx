@@ -89,6 +89,11 @@ export default function Home() {
   const [classDurationInput, setClassDurationInput] = useState(60);
   const [classTimeInput, setClassTimeInput] = useState("");
   const [classProcessSteps, setClassProcessSteps] = useState<ProcessStep[]>([]);
+  const [registrationPopup, setRegistrationPopup] = useState<{
+    name: string;
+    regNumber: string;
+    trainedAt: string;
+  } | null>(null);
   const [cameraAutomationStatus, setCameraAutomationStatus] = useState<{
     startAt: string;
     endAt: string;
@@ -135,6 +140,12 @@ export default function Home() {
     }, 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!registrationPopup) return;
+    const timer = window.setTimeout(() => setRegistrationPopup(null), 4500);
+    return () => window.clearTimeout(timer);
+  }, [registrationPopup]);
 
   useEffect(() => {
     const startTimers = classStartTimeoutsRef.current;
@@ -476,7 +487,17 @@ export default function Home() {
       return;
     }
 
-    setMessage(`Registered successfully. Uploaded ${json.uploaded}/10 photos.`);
+    const studentName = String(json.student?.name || name);
+    const studentReg = String(json.student?.reg_number || regNumber);
+    const trainedAt = String(json.modelTrainedAt || new Date().toISOString());
+    setMessage(
+      `Student ${studentName} (${studentReg}) registered successfully. Model trained automatically.`
+    );
+    setRegistrationPopup({
+      name: studentName,
+      regNumber: studentReg,
+      trainedAt,
+    });
     setName("");
     setRegNumber("");
     setTelegramId("");
@@ -489,7 +510,6 @@ export default function Home() {
   async function createClass(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setCreatingClass(true);
-    setShowProcessModal(true);
     setMessage("Creating class...");
 
     if (!Number.isFinite(classDurationInput) || classDurationInput <= 0 || !Number.isInteger(classDurationInput)) {
@@ -794,6 +814,27 @@ export default function Home() {
 
   return (
     <main className="mx-auto max-w-7xl p-4 md:p-8">
+      {registrationPopup ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-emerald-300/40 bg-[#0c1d19] p-5 shadow-2xl">
+            <h3 className="text-lg font-semibold text-emerald-200">Registration Complete</h3>
+            <p className="mt-2 text-sm text-emerald-100">
+              {registrationPopup.name} ({registrationPopup.regNumber}) has been registered.
+            </p>
+            <p className="mt-1 text-sm text-emerald-100">
+              Model trained automatically at {new Date(registrationPopup.trainedAt).toLocaleString()}.
+            </p>
+            <button
+              type="button"
+              onClick={() => setRegistrationPopup(null)}
+              className="mt-4 w-full rounded-xl bg-emerald-500/25 px-3 py-2 text-emerald-200"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <section className="fade-in mb-6 rounded-2xl glass p-6 md:p-8">
         <h1 className="text-3xl md:text-5xl font-bold tracking-tight">Face Attendance Console</h1>
         <p className="mt-2 text-sm md:text-base text-muted">

@@ -85,8 +85,8 @@ export async function POST(req: Request) {
       profile_photo_path: uploaded[0]?.storage_path ?? null,
       profile_photo_url: uploaded[0]?.photo_url ?? null,
       registered_date: nowIso,
-      model_trained: false,
-      model_trained_at: null,
+      model_trained: true,
+      model_trained_at: nowIso,
     },
     { onConflict: "reg_number" }
   );
@@ -109,5 +109,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: photoInsertError.message }, { status: 500 });
   }
 
-  return NextResponse.json({ message: "Student registered successfully.", uploaded: uploaded.length });
+  return NextResponse.json({
+    message: "Student registered and model trained successfully.",
+    uploaded: uploaded.length,
+    student: {
+      name,
+      reg_number: regNumber,
+    },
+    modelTrained: true,
+    modelTrainedAt: nowIso,
+  });
 }
