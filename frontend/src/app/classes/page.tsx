@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type ScheduledClass = {
@@ -10,6 +11,14 @@ type ScheduledClass = {
   class_name: string;
   duration_minutes: number;
   class_time: string;
+  class_start_at: string;
+  class_end_at: string;
+};
+
+type ClassConflict = {
+  id: number;
+  class_name: string;
+  teacher_name: string;
   class_start_at: string;
   class_end_at: string;
 };
@@ -43,6 +52,7 @@ function computeWindow(classTime: string, durationMinutes: number) {
 }
 
 export default function ClassesPage() {
+  const router = useRouter();
   const [teacherName, setTeacherName] = useState("");
   const [teacherUniqueId, setTeacherUniqueId] = useState("");
   const [className, setClassName] = useState("");
@@ -53,6 +63,9 @@ export default function ClassesPage() {
   const [showModal, setShowModal] = useState(false);
   const [steps, setSteps] = useState<ProcessStep[]>([]);
   const [notice, setNotice] = useState("");
+  const [conflicts, setConflicts] = useState<ClassConflict[]>([]);
+  const [checkingConflict, setCheckingConflict] = useState(false);
+  const [cancelingClassId, setCancelingClassId] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState(0);
 
   async function loadClasses() {
@@ -62,15 +75,23 @@ export default function ClassesPage() {
   }
 
   useEffect(() => {
-    const boot = window.setTimeout(() => {
-      void loadClasses();
+    const boot = window.setTimeout(async () => {
+      const sessionRes = await fetch("/api/teacher-session", { cache: "no-store" });
+      if (!sessionRes.ok) {
+        router.push("/");
+        return;
+      }
+      const sessionJson = await sessionRes.json();
+      setTeacherName(String(sessionJson.teacher?.teacher_name || ""));
+      setTeacherUniqueId(String(sessionJson.teacher?.teacher_id || ""));
+      await loadClasses();
     }, 0);
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
     return () => {
       window.clearTimeout(boot);
       window.clearInterval(timer);
     };
-  }, []);
+  }, [router]);
 
   const nextClass = useMemo(() => {
     const list = classes
@@ -78,6 +99,39 @@ export default function ClassesPage() {
       .sort((a, b) => new Date(a.class_start_at).getTime() - new Date(b.class_start_at).getTime());
     return list[0] ?? null;
   }, [classes, nowMs]);
+
+  useEffect(() => {
+    if (!classTime || !Number.isFinite(durationMinutes) || durationMinutes <= 0 || !Number.isInteger(durationMinutes)) {
+      setConflicts([]);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        const { start, end } = computeWindow(classTime, durationMinutes);
+        setCheckingConflict(true);
+        const url = new URL("/api/classes", window.location.origin);
+        url.searchParams.set("checkConflict", "1");
+        url.searchParams.set("classStartAt", start.toISOString());
+        url.searchParams.set("classEndAt", end.toISOString());
+        const res = await fetch(url.toString(), { cache: "no-store" });
+        const json = await res.json();
+        if (!cancelled && res.ok) {
+          setConflicts((json.conflicts || []) as ClassConflict[]);
+        }
+      } catch {
+        if (!cancelled) setConflicts([]);
+      } finally {
+        if (!cancelled) setCheckingConflict(false);
+      }
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [classTime, durationMinutes]);
 
   function updateStep(key: string, status: ProcessStep["status"], detail?: string) {
     setSteps((prev) => prev.map((s) => (s.key === key ? { ...s, status, detail: detail ?? s.detail } : s)));
@@ -87,6 +141,10 @@ export default function ClassesPage() {
     e.preventDefault();
     if (!classTime) {
       setNotice("Please select class time.");
+      return;
+    }
+    if (conflicts.length > 0) {
+      setNotice("Cannot create class: this time conflicts with another scheduled class.");
       return;
     }
 
@@ -99,8 +157,6 @@ export default function ClassesPage() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        teacherName,
-        teacherUniqueId,
         className,
         durationMinutes,
         classTime,
@@ -118,25 +174,33 @@ export default function ClassesPage() {
     }
 
     updateStep("db", "done", "Class saved");
-    if (json.notificationAction === "sent_now") {
-      updateStep("telegram", "done", `Reminder sent now to ${json.notificationResult?.sent ?? 0}/${json.notificationResult?.total ?? 0}`);
-    } else if (json.notificationAction === "scheduled") {
-      const when = json.notificationScheduledFor ? new Date(String(json.notificationScheduledFor)).toLocaleString() : "30 minutes before class";
-      updateStep("telegram", "done", `Reminder scheduled for ${when}`);
-    } else {
-      updateStep("telegram", "error", "TELEGRAM_BOT_TOKEN not configured");
-    }
+    updateStep("telegram", "done", "Reminder workflow configured (30 minutes before class).");
 
     updateStep("camera", "done", `Auto start ${start.toLocaleString()} / stop ${end.toLocaleString()}`);
     setNotice("Class created successfully.");
 
-    setTeacherName("");
-    setTeacherUniqueId("");
     setClassName("");
     setDurationMinutes(60);
     setClassTime("");
     await loadClasses();
     setCreating(false);
+  }
+
+  async function cancelClass(classId: number) {
+    setCancelingClassId(classId);
+    const res = await fetch(`/api/classes?id=${classId}`, { method: "DELETE" });
+    const json = await res.json();
+    if (!res.ok) {
+      setNotice(json.error || "Could not cancel class.");
+      setCancelingClassId(null);
+      return;
+    }
+
+    const sent = Number(json.cancellationNotification?.sent ?? 0);
+    const total = Number(json.cancellationNotification?.total ?? 0);
+    setNotice(total > 0 ? `Class cancelled. Cancellation sent to ${sent}/${total} students.` : "Class cancelled.");
+    await loadClasses();
+    setCancelingClassId(null);
   }
 
   return (
@@ -169,7 +233,7 @@ export default function ClassesPage() {
             <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">Scheduling</p>
             <h1 className="mt-2 text-3xl font-bold">Classes</h1>
           </div>
-          <Link href="/" className="rounded-xl bg-white/10 px-4 py-2 text-sm">Back</Link>
+          <Link href="/dashboard" className="rounded-xl bg-white/10 px-4 py-2 text-sm">Back</Link>
         </div>
         <p className="mt-2 text-sm text-muted">Create class windows and monitor upcoming sessions across all teachers.</p>
       </section>
@@ -178,13 +242,26 @@ export default function ClassesPage() {
         <article className="rounded-2xl glass p-5">
           <h2 className="text-xl font-semibold">New Class</h2>
           <form className="mt-4 grid gap-3 md:grid-cols-2" onSubmit={createClass}>
-            <input className="w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 outline-none focus:border-cyan-300" placeholder="Teacher Name" value={teacherName} onChange={(e) => setTeacherName(e.target.value)} required />
-            <input className="w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 outline-none focus:border-cyan-300" placeholder="Teacher Unique ID" value={teacherUniqueId} onChange={(e) => setTeacherUniqueId(e.target.value)} required />
+            <input className="w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 outline-none" value={teacherName || "Loading teacher..."} disabled />
+            <input className="w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 font-mono outline-none" value={teacherUniqueId || "Loading ID..."} disabled />
             <input className="w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 outline-none focus:border-cyan-300" placeholder="Class Name" value={className} onChange={(e) => setClassName(e.target.value)} required />
             <input type="number" min={1} step={1} className="w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 outline-none focus:border-cyan-300" placeholder="Duration (minutes)" value={durationMinutes} onChange={(e) => setDurationMinutes(Number(e.target.value))} required />
             <input type="time" className="w-full rounded-xl border border-white/15 bg-black/20 px-3 py-2 outline-none focus:border-cyan-300" value={classTime} onChange={(e) => setClassTime(e.target.value)} required />
-            <button type="submit" disabled={creating} className="w-full rounded-xl bg-emerald-500/20 px-3 py-2 text-emerald-200 disabled:opacity-40">{creating ? "Creating..." : "Create Class"}</button>
+            <button type="submit" disabled={creating || checkingConflict || conflicts.length > 0} className="w-full rounded-xl bg-emerald-500/20 px-3 py-2 text-emerald-200 disabled:opacity-40">{creating ? "Creating..." : "Create Class"}</button>
           </form>
+          {checkingConflict ? <p className="mt-3 text-xs text-cyan-200">Checking timetable conflict...</p> : null}
+          {conflicts.length > 0 ? (
+            <div className="mt-3 rounded-xl border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-200">
+              <p className="font-medium">Time conflict detected. Existing class(es):</p>
+              <ul className="mt-2 space-y-1 text-xs">
+                {conflicts.map((item) => (
+                  <li key={item.id}>
+                    {item.class_name} by {item.teacher_name} ({new Date(item.class_start_at).toLocaleString()} - {new Date(item.class_end_at).toLocaleString()})
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {notice ? <p className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-muted">{notice}</p> : null}
         </article>
 
@@ -211,6 +288,7 @@ export default function ClassesPage() {
               <th className="py-2 text-left">Teacher ID</th>
               <th className="py-2 text-left">Start</th>
               <th className="py-2 text-left">End</th>
+              <th className="py-2 text-left">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -221,6 +299,22 @@ export default function ClassesPage() {
                 <td className="py-2 font-mono">{item.teacher_unique_id}</td>
                 <td className="py-2">{new Date(item.class_start_at).toLocaleString()}</td>
                 <td className="py-2">{new Date(item.class_end_at).toLocaleString()}</td>
+                <td className="py-2">
+                  {item.teacher_unique_id === teacherUniqueId ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void cancelClass(item.id);
+                      }}
+                      disabled={cancelingClassId === item.id}
+                      className="rounded-lg bg-rose-500/20 px-3 py-1 text-xs text-rose-200 disabled:opacity-40"
+                    >
+                      {cancelingClassId === item.id ? "Cancelling..." : "Cancel"}
+                    </button>
+                  ) : (
+                    <span className="text-xs text-muted">Not yours</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

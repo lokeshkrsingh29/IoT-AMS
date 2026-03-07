@@ -34,7 +34,7 @@ export default function StudentsPage() {
           </div>
           <div className="flex gap-2">
             <Link href="/workspace" className="rounded-xl bg-cyan-400/20 px-4 py-2 text-sm text-cyan-100">Open Registration Workspace</Link>
-            <Link href="/" className="rounded-xl bg-white/10 px-4 py-2 text-sm">Back</Link>
+            <Link href="/dashboard" className="rounded-xl bg-white/10 px-4 py-2 text-sm">Back</Link>
           </div>
         </div>
       </section>

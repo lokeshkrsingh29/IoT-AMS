@@ -1044,7 +1044,9 @@ export default function Home() {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={startAttendanceCamera}
+                onClick={() => {
+                  void startAttendanceCamera();
+                }}
                 className="rounded-xl bg-accent/20 px-3 py-2 text-accent cursor-pointer"
               >
                 Start Camera Attendance
